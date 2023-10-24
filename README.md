@@ -16,3 +16,8 @@ Clone the repository.
 Navigate to the project directory.
 To run, enter `mvn clean install` & `mvn javafx:run` into console to run the RestClientGraphPlotter class.
 Watch the live Bitcoin price trends!
+
+
+## TODO
+
+Currently, it appears that only bitcoin's values are fetched, all the other assets seemto be stuck at 0? or a certain dollar amount? but i might be wrong. need to debug more.

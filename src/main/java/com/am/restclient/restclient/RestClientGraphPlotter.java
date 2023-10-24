@@ -5,10 +5,13 @@ import javafx.scene.Scene;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.XYChart;
+import javafx.scene.control.Label;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import com.google.gson.Gson;
 
-
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -18,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class RestClientGraphPlotter extends Application {
 
@@ -25,54 +29,74 @@ public class RestClientGraphPlotter extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        primaryStage.setTitle("Bitcoin Price History");
+        primaryStage.setTitle("Crypto Asset Price History");
 
-        // Set up the JavaFX chart
-        final NumberAxis xAxis = new NumberAxis();
+        long currentTime = Instant.now().toEpochMilli();
+        long twoDaysInMillis = 2L * 24 * 60 * 60 * 1000;
+        long startTime = currentTime - twoDaysInMillis;
+
+        final NumberAxis xAxis = new NumberAxis(startTime, currentTime, twoDaysInMillis / 24);
         final NumberAxis yAxis = new NumberAxis();
         xAxis.setLabel("Time (in milliseconds)");
         yAxis.setLabel("Price (in USD)");
 
         final LineChart<Number, Number> lineChart = new LineChart<>(xAxis, yAxis);
 
-        XYChart.Series<Number, Number> series = new XYChart.Series<>();
-        series.setName("Bitcoin Price");
-
-        Scene scene = new Scene(lineChart, 800, 600);
+        Label lastRefreshedLabel = new Label();
+        VBox layout = new VBox(10); // Use a VBox to stack the label on top of the chart
+        layout.getChildren().addAll(lastRefreshedLabel, lineChart);
+        Scene scene = new Scene(layout, 800, 600);
         primaryStage.setScene(scene);
 
-        // Schedule data updates every 20 seconds
         ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-        executorService.scheduleAtFixedRate(() -> {
-            List<HistoryResponse.HistoryData> dataPoints = getBitcoinPriceHistory();
-            series.getData().clear();
 
-            for (HistoryResponse.HistoryData dataPoint : dataPoints) {
-                series.getData().add(new XYChart.Data<>(dataPoint.getTime(), Double.parseDouble(dataPoint.getPriceUsd())));
-            }
-        }, 0, 20, TimeUnit.SECONDS);
+        List<String> top5Assets = getTop5AssetIds();
+        for (String assetId : top5Assets) {
+            XYChart.Series<Number, Number> series = new XYChart.Series<>();
+            series.setName(assetId); // Or use the asset name instead
+            lineChart.getData().add(series);
+
+            // Fetch data and plot every 20 seconds, similar to what you did for Bitcoin
+            executorService.scheduleAtFixedRate(() -> {
+                List<HistoryResponse.HistoryData> dataPoints = getAssetPriceHistory(assetId);
+                series.getData().clear();
+
+                for (HistoryResponse.HistoryData dataPoint : dataPoints) {
+                   System.out.println(dataPoint.getTime() + " " + dataPoint.getPriceUsd());
+                    series.getData()
+                            .add(new XYChart.Data<>(dataPoint.getTime(), Double.parseDouble(dataPoint.getPriceUsd())));
+                }
+
+                // Refresh the xAxis
+                xAxis.setLowerBound(dataPoints.get(0).getTime());
+                xAxis.setUpperBound(dataPoints.get(dataPoints.size() - 1).getTime());
+
+                // Set last refreshed time
+                lastRefreshedLabel.setText(
+                        "Last Refreshed: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+
+            }, 0, 20, TimeUnit.SECONDS);
+        }
 
         primaryStage.setOnCloseRequest(event -> executorService.shutdown());
-
-        lineChart.getData().add(series);
         primaryStage.show();
     }
 
-    private List<HistoryResponse.HistoryData> getBitcoinPriceHistory() {
+    private List<HistoryResponse.HistoryData> getAssetPriceHistory(String assetId) {
         long currentTime = Instant.now().toEpochMilli();
         long twoDaysInMillis = 2L * 24 * 60 * 60 * 1000;
         long startTime = currentTime - twoDaysInMillis;
-    
-        String url = COINCAP_BASE_URL + "/assets/bitcoin/history?interval=h2&start=" + startTime + "&end=" + currentTime;
-    
+
+        String url = COINCAP_BASE_URL + "/assets/" + assetId + "/history?interval=h2&start=" + startTime + "&end="
+                + currentTime;
+
         String response = getResponseFromUrl(url);
-        
+
         Gson gson = new Gson();
         HistoryResponse historyResponse = gson.fromJson(response, HistoryResponse.class);
-    
+
         return historyResponse.getData();
     }
-    
 
     private String getResponseFromUrl(String url) {
         StringBuilder response = new StringBuilder();
@@ -93,9 +117,53 @@ public class RestClientGraphPlotter extends Application {
         return response.toString();
     }
 
+    private List<String> getTop5AssetIds() {
+        String url = COINCAP_BASE_URL + "/assets?limit=5";
+        String response = getResponseFromUrl(url);
+
+        Gson gson = new Gson();
+        AssetListResponse assetListResponse = gson.fromJson(response, AssetListResponse.class);
+
+        return assetListResponse.getData().stream()
+                .map(AssetListResponse.Asset::getId)
+                .collect(Collectors.toList());
+    }
 
     public static void main(String[] args) {
         launch(args);
+    }
+
+    static class AssetListResponse {
+        private List<Asset> data;
+
+        public List<Asset> getData() {
+            return data;
+        }
+
+        public void setData(List<Asset> data) {
+            this.data = data;
+        }
+
+        static class Asset {
+            private String id;
+            private String name;
+
+            public String getId() {
+                return id;
+            }
+
+            public void setId(String id) {
+                this.id = id;
+            }
+
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+        }
     }
 
     static class HistoryResponse {
