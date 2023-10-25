@@ -4,8 +4,8 @@ A simple JavaFX application that plots the historical price of Bitcoin over the 
 ## Features
 - Fetches live Bitcoin price data from CoinCap API (RESTful API setup)
 - Displays the price trend over the past n days using JavaFX line chart.
-- Updates the chart data every n seconds for real-time visualization.
-// TODO - Uses a descriptive time scale on the x-axis for easy readability.
+- Updates the chart data every n seconds for real-time visualization (uses multithreading)
+- Uses a descriptive time scale on the x-axis for easy readability.
 
 ## How It Works
 The application uses Java's HttpURLConnection to connect to CoinCap's API and fetch the price data. This data is then deserialized using the Gson library. The chart is drawn using JavaFX'.
@@ -18,6 +18,3 @@ To run, enter `mvn clean install` & `mvn javafx:run` into console to run the Res
 Watch the live Bitcoin price trends!
 
 
-## TODO
-
-Currently, it appears that only bitcoin's values are fetched, all the other assets seemto be stuck at 0? or a certain dollar amount? but i might be wrong. need to debug more.
