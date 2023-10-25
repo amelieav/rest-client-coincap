@@ -1,6 +1,8 @@
 package com.am.restclient.restclient;
 
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.NumberAxis;
@@ -8,6 +10,7 @@ import javafx.scene.chart.XYChart;
 import javafx.scene.control.Label;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+
 import com.google.gson.Gson;
 
 import java.time.LocalDateTime;
@@ -23,6 +26,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import javafx.util.StringConverter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+
 public class RestClientGraphPlotter extends Application {
 
     private static final String COINCAP_BASE_URL = "https://api.coincap.io/v2";
@@ -32,10 +40,25 @@ public class RestClientGraphPlotter extends Application {
         primaryStage.setTitle("Crypto Asset Price History");
 
         long currentTime = Instant.now().toEpochMilli();
-        long twoDaysInMillis = 2L * 24 * 60 * 60 * 1000;
-        long startTime = currentTime - twoDaysInMillis;
+        long twoDaysInMilliseconds = 2L * 24 * 60 * 60 * 1000;
+        long startTime = currentTime - twoDaysInMilliseconds;
 
-        final NumberAxis xAxis = new NumberAxis(startTime, currentTime, twoDaysInMillis / 24);
+        final NumberAxis xAxis = new NumberAxis(startTime, currentTime, twoDaysInMilliseconds / 24);
+        xAxis.setLabel("Date & Time");
+        xAxis.setTickLabelFormatter(new StringConverter<Number>() {
+            private SimpleDateFormat sdf = new SimpleDateFormat("dd/MM HH:mm:ss");
+            
+            @Override
+            public String toString(Number object) {
+                return sdf.format(new Date(object.longValue()));
+            }
+        
+            @Override
+            public Number fromString(String string) {
+                // code later
+                return 0;
+            }
+        });
         final NumberAxis yAxis = new NumberAxis();
         xAxis.setLabel("Time (in milliseconds)");
         yAxis.setLabel("Price (in USD)");
@@ -43,9 +66,16 @@ public class RestClientGraphPlotter extends Application {
         final LineChart<Number, Number> lineChart = new LineChart<>(xAxis, yAxis);
 
         Label lastRefreshedLabel = new Label();
-        VBox layout = new VBox(10); // Use a VBox to stack the label on top of the chart
-        layout.getChildren().addAll(lastRefreshedLabel, lineChart);
-        Scene scene = new Scene(layout, 800, 600);
+        Label titleLabel = new Label();
+        titleLabel.setText("Crypto Asset Price History - Top 5 as ranked by CoinCap.io");
+        titleLabel.setAlignment(Pos.CENTER);
+        titleLabel.setMaxWidth(Double.MAX_VALUE);
+
+        VBox layout = new VBox(10);
+        layout.getChildren().addAll(titleLabel, lastRefreshedLabel, lineChart);
+        layout.setAlignment(Pos.CENTER);
+
+        Scene scene = new Scene(layout, 800, 800);
         primaryStage.setScene(scene);
 
         ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -53,27 +83,39 @@ public class RestClientGraphPlotter extends Application {
         List<String> top5Assets = getTop5AssetIds();
         for (String assetId : top5Assets) {
             XYChart.Series<Number, Number> series = new XYChart.Series<>();
-            series.setName(assetId); // Or use the asset name instead
+            series.setName(assetId); // alternatively you can use the asset name here, but TODO need to write function to get asset name
             lineChart.getData().add(series);
+            lineChart.setPrefHeight(700); // set this to 500 as smaller values tend to squish non-bitcoin currencies to the bottom of the graph
 
-            // Fetch data and plot every 20 seconds, similar to what you did for Bitcoin
+            // uses multithreading to fetch data and plot every 20 seconds
             executorService.scheduleAtFixedRate(() -> {
                 List<HistoryResponse.HistoryData> dataPoints = getAssetPriceHistory(assetId);
-                series.getData().clear();
 
-                for (HistoryResponse.HistoryData dataPoint : dataPoints) {
-                   System.out.println(dataPoint.getTime() + " " + dataPoint.getPriceUsd());
-                    series.getData()
-                            .add(new XYChart.Data<>(dataPoint.getTime(), Double.parseDouble(dataPoint.getPriceUsd())));
-                }
+                Platform.runLater(() -> { // use platform runlater to fix multithreading errors in console
+                    series.getData().clear();
 
-                // Refresh the xAxis
-                xAxis.setLowerBound(dataPoints.get(0).getTime());
-                xAxis.setUpperBound(dataPoints.get(dataPoints.size() - 1).getTime());
+                    if (!dataPoints.isEmpty()) {
+                        HistoryResponse.HistoryData mostRecentDataPoint = dataPoints.get(dataPoints.size() - 1);
+                        System.out.println("Asset: " + assetId + ", Time: " + mostRecentDataPoint.getTime()
+                                + ", Price: " + mostRecentDataPoint.getPriceUsd());
 
-                // Set last refreshed time
-                lastRefreshedLabel.setText(
-                        "Last Refreshed: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                        long twoDaysInMillis = 2L * 24 * 60 * 60 * 1000;
+                        long currentUpperBound = mostRecentDataPoint.getTime();
+                        long currentLowerBound = currentUpperBound - twoDaysInMillis;
+
+                        xAxis.setLowerBound(currentLowerBound);
+                        xAxis.setUpperBound(currentUpperBound);
+                        xAxis.setTickUnit(twoDaysInMillis / 24);
+                    }
+
+                    for (HistoryResponse.HistoryData dataPoint : dataPoints) {
+                        series.getData().add(
+                                new XYChart.Data<>(dataPoint.getTime(), Double.parseDouble(dataPoint.getPriceUsd())));
+                    }
+
+                    lastRefreshedLabel.setText(
+                            "Last Refreshed: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                });
 
             }, 0, 20, TimeUnit.SECONDS);
         }
@@ -100,6 +142,8 @@ public class RestClientGraphPlotter extends Application {
 
     private String getResponseFromUrl(String url) {
         StringBuilder response = new StringBuilder();
+
+        // error handling for url connection, useful for debugging
         try {
             URL website = new URL(url);
             HttpURLConnection connection = (HttpURLConnection) website.openConnection();
@@ -133,6 +177,7 @@ public class RestClientGraphPlotter extends Application {
         launch(args);
     }
 
+    // to keep data handling ✨ neat ✨
     static class AssetListResponse {
         private List<Asset> data;
 
